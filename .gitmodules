@@ -1,0 +1,3 @@
+[submodule "Spectra-Backend"]
+	path = Spectra-Backend
+	url = https://huggingface.co/spaces/ShadowGard3n/Spectra-Backend
