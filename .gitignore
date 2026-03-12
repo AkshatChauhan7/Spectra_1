@@ -1,0 +1,9 @@
+.DS_Store
+.ipynb_checkpoints/
+__pycache__/
+ChartQA-Dataset/
+PlotQA-Dataset/
+dataset_hbar/
+models/
+*.zip
+*.jsonl
