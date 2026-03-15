@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "graphvision-ai"
-version = "0.1.10"  
+version = "0.1.13"  
 description = "Automatic Graph Classification and Data Extraction"
 readme = "README.md"
 authors = [{name="Aryan Gahlot"}]
