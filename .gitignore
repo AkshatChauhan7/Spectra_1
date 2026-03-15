@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .DS_Store
 .ipynb_checkpoints/
 __pycache__/
@@ -7,3 +8,37 @@ dataset_hbar/
 models/
 *.zip
 *.jsonl
+=======
+# Mac
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints/
+
+# datasets
+ChartQA_Dataset/
+FigureQA_Dataset/
+PlotQA_Dataset/
+
+# local notebooks / experiments
+notebooks/runs/
+notebooks/datasets/
+notebooks/classifier_data/
+notebooks/classifier_sample_data/
+notebooks/yolo_dataset/
+
+# models
+*.pth
+*.pt
+
+# outputs
+*.pdf
+*.docx
+*.xlsx
+
+# misc local files
+Test/
+graphvision/dist/
+graphvision/weights/
+graphvision/graphvision_ai.egg-info/
+>>>>>>> 2ad13dd (ignore local datasets, checkpoints, and system files)
