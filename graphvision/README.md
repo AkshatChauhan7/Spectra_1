@@ -38,19 +38,21 @@ Extracting data from a graph takes less than 5 lines of code:
 
 ```
 from graphvision.extractor import GraphExtractor
-import json
 
 try:
+    # 1. Initialize your engine (this will download weights if needed)
     vision_engine = GraphExtractor()
     
     # Path to your test image
     image_to_test = "hbar2.png" 
     
-    # Run the extraction
-    result = vision_engine.extract_data(image_to_test)
+    # 2. Run the extraction using the new method name
+    print(f"\n🚀 Extracting data from {image_to_test}...")
+    result_json_string = vision_engine.extract(image_to_test)
     
+    # 3. Print the result (it's already a nicely formatted string!)
     print("\n✅ Extraction Successful!")
-    print(json.dumps(result, indent=4))
+    print(result_json_string)
 
 except Exception as e:
     print(f"\n❌ Error during testing: {e}")
