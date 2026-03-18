@@ -41,7 +41,8 @@ class GraphExtractor:
         # 1. Download Weights
         classifier_path = hf_hub_download(repo_id=self.hf_repo_id, filename="graph_classifier_real.pth")
         pie_model_path = hf_hub_download(repo_id=self.hf_repo_id, filename="pie_regressor_stable.pth")
-        yolo_path = hf_hub_download(repo_id=self.hf_repo_id, filename="best.pt")
+        yolo_path = hf_hub_download(repo_id=self.hf_repo_id, filename="bar.pt")
+        dot_yolo_path = hf_hub_download(repo_id=self.hf_repo_id, filename="dot_line.pt")
         
         # 2. Setup Chart Classifier
         self.CLASS_NAMES = ['dot_line', 'hbar_categorical', 'line', 'pie', 'vbar_categorical'] 
@@ -60,13 +61,16 @@ class GraphExtractor:
         # 3. Setup YOLO Bar Detector
         self.yolo_model = YOLO(yolo_path)
 
-        # 4. Setup Pie Regressor
+        # 4. Setup YOLO Dot line Detector
+        self.dot_yolo_model = YOLO(dot_yolo_path)
+
+        # 5. Setup Pie Regressor
         self.pie_model = PieRegressor()
         self.pie_model.load_state_dict(torch.load(pie_model_path, map_location=self.device))
         self.pie_model.to(self.device)
         self.pie_model.eval()
 
-        # 5. Setup OCR Text Reader
+        # 6. Setup OCR Text Reader
         self.ocr_reader = easyocr.Reader(['en'], gpu=torch.cuda.is_available() or torch.backends.mps.is_available())
 
     def _extract_number(self, text_str):
@@ -79,6 +83,42 @@ class GraphExtractor:
         if text_clean == 'S': return 5.0
         if text_clean in ['I', 'L']: return 1.0
         return None
+    
+    @staticmethod
+    def _color_distance(c1, c2):
+        """Calculate Euclidean distance between two BGR colors."""
+        return np.linalg.norm(np.array(c1, dtype=np.float32) - np.array(c2, dtype=np.float32))
+
+    @staticmethod
+    def _get_robust_scale(axis_nums, axis_key='y'):
+        """Robust scaling that ignores OCR typos."""
+        if len(axis_nums) < 2:
+            return 1.0, 0.0
+
+        coords = np.array([n[axis_key] for n in axis_nums])
+        vals = np.array([n['val'] for n in axis_nums])
+
+        median_val = np.median(vals)
+        if median_val > 0:
+            for i in range(len(vals)):
+                if vals[i] > median_val * 5: 
+                    vals[i] /= 10.0
+
+        slopes = []
+        for i in range(len(coords)):
+            for j in range(i+1, len(coords)):
+                if abs(coords[i] - coords[j]) > 10: 
+                    slope = (vals[i] - vals[j]) / (coords[i] - coords[j])
+                    slopes.append(slope)
+        
+        if not slopes:
+            return 1.0, 0.0
+            
+        best_m = np.median(slopes)
+        intercepts = vals - best_m * coords
+        best_c = np.median(intercepts)
+        
+        return best_m, best_c
 
     def extract(self, image_path):
         """
@@ -106,11 +146,139 @@ class GraphExtractor:
             return self._extract_bar_chart(image_path, chart_type)
         elif 'pie' in chart_type:
             return self._extract_pie_chart(image_path)
+        elif chart_type == 'dot_line':
+            return self._extract_dot_line_chart(image_path)
         else:
             return json.dumps({
                 "chart_type": chart_type, 
                 "error": f"Extraction for {chart_type} is currently under development."
             }, indent=4)
+        
+    def _extract_dot_line_chart(self, image_path):
+        results = self.dot_yolo_model(image_path, conf=0.5, iou=0.4, imgsz=1024, verbose=False)
+        boxes = results[0].boxes.xyxy.cpu().numpy()
+
+        if len(boxes) == 0:
+            return json.dumps({"chart_type": "dot_line", "error": "No dots detected."})
+
+        img_cv = cv2.imread(image_path)
+        # img_upscaled = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        h, w = img_cv.shape[:2]
+
+        scale = 2.0 if w < 800 else 1.0
+
+        if scale == 2.0:
+            img_upscaled = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        else:
+            img_upscaled = img_cv.copy()
+
+        ocr_results = self.ocr_reader.readtext(img_upscaled)
+        
+        numbers = []
+        text_labels = []
+        raw_legend_candidates = []
+
+        for (bbox, text, prob) in ocr_results:
+            orig_tl_x, orig_tl_y = bbox[0][0] / scale, bbox[0][1] / scale
+            orig_br_x, orig_br_y = bbox[2][0] / scale, bbox[2][1] / scale
+            
+            cx = (orig_tl_x + orig_br_x) / 2.0
+            cy = (orig_tl_y + orig_br_y) / 2.0
+            
+            val = self._extract_number(text)
+            if val is not None:
+                numbers.append({'val': val, 'x': cx, 'y': cy})
+            else:
+                text_labels.append({'text': text, 'x': cx, 'y': cy})
+                raw_legend_candidates.append({
+                    'text': text, 
+                    'x': cx,
+                    'tl_x': orig_tl_x, 
+                    'cy': cy, 
+                    'height': orig_br_y - orig_tl_y
+                })
+
+        leftmost_dot = boxes[:, 0].min()
+        bottommost_dot = boxes[:, 3].max()
+
+        y_axis_nums = [n for n in numbers if n['x'] < leftmost_dot]
+        y_m, y_c = self._get_robust_scale(y_axis_nums, axis_key='y')
+
+        x_axis_nums = [n for n in numbers if n['y'] > bottommost_dot]
+        x_m, x_c = self._get_robust_scale(x_axis_nums, axis_key='x')
+
+        legend_colors = {}
+        legend_texts = set()
+        ignore_words = ['xaxis_label', 'yaxis_label', 'xaxis label', 'yaxis label', 'title', 'x_axis', 'y_axis']
+        
+        for item in raw_legend_candidates:
+            clean_text = item['text'].strip()
+            if clean_text.lower() in ignore_words:
+                continue
+                
+            sample_x = int(item['tl_x'] - item['height'] * 0.8) 
+            sample_y = int(item['cy'])
+            
+            if sample_x > 0 and sample_y > 0 and sample_x < img_cv.shape[1] and sample_y < img_cv.shape[0]:
+                bgr_color = img_cv[sample_y, sample_x]
+                b, g, r = int(bgr_color[0]), int(bgr_color[1]), int(bgr_color[2])
+                
+                is_not_white = (b + g + r) < 700      
+                is_not_black = (b + g + r) > 50       
+                is_colorful = max(b, g, r) - min(b, g, r) > 20 
+                
+                if is_not_white and is_not_black and is_colorful:
+                    legend_colors[clean_text] = bgr_color
+                    legend_texts.add(item['text'])
+
+        extracted_points = []
+
+        for box in boxes:
+            cx = int((box[0] + box[2]) / 2)
+            cy = int((box[1] + box[3]) / 2)
+            
+            real_x = (x_m * cx) + x_c
+            real_y = (y_m * cy) + y_c
+            
+            dot_color = img_cv[cy, cx]
+            best_class = "Unknown"
+            
+            if legend_colors:
+                best_class = min(legend_colors.keys(), key=lambda k: self._color_distance(dot_color, legend_colors[k]))
+
+            extracted_points.append({
+                "class": best_class,
+                "x": float(round(real_x, 2)), 
+                "y": float(round(real_y, 2))
+            })
+
+        extracted_points.sort(key=lambda p: p['x'])
+
+        title, x_axis_label, y_axis_label = None, None, None
+
+        if text_labels:
+            top_most = min(text_labels, key=lambda l: l['y'])
+            if top_most['y'] < boxes[:, 1].min(): 
+                title = top_most['text']
+            
+            remaining = [l for l in text_labels if l != top_most and l['text'] not in legend_texts]
+            
+            if remaining:
+                bottom_most = max(remaining, key=lambda l: l['y'])
+                x_axis_label = bottom_most['text']
+                left_most = min(remaining, key=lambda l: l['x'])
+                y_axis_label = left_most['text']
+
+        output = {
+            "chart_type": "dot_line",
+            "title": title,
+            "x_axis_label": x_axis_label,
+            "y_axis_label": y_axis_label,
+            "total_points": len(extracted_points),
+            "data": extracted_points
+        }
+
+        return json.dumps(output, indent=4)
 
     def _extract_bar_chart(self, image_path, chart_type):
         results = self.yolo_model(image_path, conf=0.8, iou=0.4, imgsz=1024, verbose=False)
@@ -120,53 +288,87 @@ class GraphExtractor:
             return json.dumps({"chart_type": chart_type, "error": "No bars detected."})
             
         img_cv = cv2.imread(image_path)
-        img_upscaled = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        # img_upscaled = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
         
-        ocr_results = self.ocr_reader.readtext(img_upscaled)
+        # ocr_results = self.ocr_reader.readtext(img_upscaled)
+
+        h, w = img_cv.shape[:2]
+
+        scale = 2.0 if w < 800 else 1.0
+
+        if scale == 2.0:
+            img_upscaled = cv2.resize(img_cv, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        else:
+            img_upscaled = img_cv.copy()
+        
+        img_for_ocr = img_upscaled.copy()
+
+        for box in boxes:
+            # Scale YOLO boxes up if the image was upscaled
+            scale = 2 if w < 800 else 1 
+            x1, y1, x2, y2 = [int(coord * scale) for coord in box]
+            
+            # Fill the bar area with white (255, 255, 255)
+            cv2.rectangle(img_for_ocr, (x1, y1), (x2, y2), (255, 255, 255), -1)
+
+        ocr_results = self.ocr_reader.readtext(img_for_ocr)
         numbers = []
         text_labels = []
         
-        def add_or_update_label(new_text, new_cx, new_cy):
+        # def add_or_update_label(new_text, new_cx, new_cy):
+        #     if len(new_text.strip()) == 1 and not new_text.isalnum():
+        #         return
+        #     existing = next((l for l in text_labels if abs(l['x'] - new_cx) < 30 and abs(l['y'] - new_cy) < 30), None)
+        #     if existing:
+        #         if len(new_text) > len(existing['text']):
+        #             existing['text'] = new_text
+        #     else:
+        #         text_labels.append({'text': new_text, 'x': new_cx, 'y': new_cy})
+
+        # Update the definition to accept is_rotated
+        def add_or_update_label(new_text, new_cx, new_cy, is_rotated=False):
             if len(new_text.strip()) == 1 and not new_text.isalnum():
                 return
             existing = next((l for l in text_labels if abs(l['x'] - new_cx) < 30 and abs(l['y'] - new_cy) < 30), None)
             if existing:
                 if len(new_text) > len(existing['text']):
                     existing['text'] = new_text
+                    existing['is_rotated'] = is_rotated
             else:
-                text_labels.append({'text': new_text, 'x': new_cx, 'y': new_cy})
+                # Save the rotation flag with the text
+                text_labels.append({'text': new_text, 'x': new_cx, 'y': new_cy, 'is_rotated': is_rotated})
         
         # Horizontal Pass
         for (bbox, text, prob) in ocr_results:
-            cx = ((bbox[0][0] + bbox[1][0]) / 2) / 2.0
-            cy = ((bbox[0][1] + bbox[2][1]) / 2) / 2.0
+            cx = ((bbox[0][0] + bbox[1][0]) / 2) / scale
+            cy = ((bbox[0][1] + bbox[2][1]) / 2) / scale
             val = self._extract_number(text)
             if val is not None:
                 numbers.append({'val': val, 'x': cx, 'y': cy})
             else:
-                add_or_update_label(text, cx, cy)
+                add_or_update_label(text, cx, cy, is_rotated=False)
 
         # Rotated Passes for VBAR
-        if 'vbar' in chart_type.lower():
-            h_up, w_up = img_upscaled.shape[:2]
+        # if 'vbar' in chart_type.lower():
+        h_up, w_up = img_upscaled.shape[:2]
             
-            img_rot_ccw = cv2.rotate(img_upscaled, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            for (bbox, text, prob) in self.ocr_reader.readtext(img_rot_ccw):
+        img_rot_ccw = cv2.rotate(img_upscaled, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        for (bbox, text, prob) in self.ocr_reader.readtext(img_rot_ccw):
                 cx_rot = ((bbox[0][0] + bbox[1][0]) / 2)
                 cy_rot = ((bbox[0][1] + bbox[2][1]) / 2)
-                cx = (w_up - cy_rot) / 2.0
-                cy = cx_rot / 2.0
+                cx = (w_up - cy_rot) / scale
+                cy = cx_rot / scale
                 if self._extract_number(text) is None:
-                    add_or_update_label(text, cx, cy)
+                    add_or_update_label(text, cx, cy, is_rotated=True)
                         
-            img_rot_cw = cv2.rotate(img_upscaled, cv2.ROTATE_90_CLOCKWISE)
-            for (bbox, text, prob) in self.ocr_reader.readtext(img_rot_cw):
+        img_rot_cw = cv2.rotate(img_upscaled, cv2.ROTATE_90_CLOCKWISE)
+        for (bbox, text, prob) in self.ocr_reader.readtext(img_rot_cw):
                 cx_rot = ((bbox[0][0] + bbox[1][0]) / 2)
                 cy_rot = ((bbox[0][1] + bbox[2][1]) / 2)
-                cx = cy_rot / 2.0
-                cy = (h_up - cx_rot) / 2.0
+                cx = cy_rot / scale
+                cy = (h_up - cx_rot) / scale
                 if self._extract_number(text) is None:
-                    add_or_update_label(text, cx, cy)
+                    add_or_update_label(text, cx, cy, is_rotated=True)
 
         final_data = []
         ignore_words = ['xaxis_label', 'yaxis_label', 'xaxis label', 'yaxis label', 'title', 'y_axis', 'x_axis']
@@ -182,22 +384,49 @@ class GraphExtractor:
                 units_per_pixel = 1.0
                 zero_x_pixel = boxes[:, 0].min() 
 
+            img_w = img_cv.shape[1]
+            max_label_distance = img_w * 0.4
+
             sorted_boxes = sorted(boxes, key=lambda b: b[1]) 
             for box in sorted_boxes:
                 x1, y1, x2, y2 = box
                 bar_cy = (y1 + y2) / 2
                 if (x2 - x1) < 10 or (y2 - y1) < 5: continue 
-                
-                possible_labels = [
+
+
+                # Get ALL labels to the left of the bar that are vertically aligned with it (within 15 pixels)
+                aligned_labels = [
                     l for l in text_labels 
-                    if l['x'] < x1 and (x1 - l['x']) < 150 and l['text'].lower().replace('_', ' ') not in ignore_words
+                    if l['x'] < x1 
+                    and (x1 - l['x']) < max_label_distance 
+                    and abs(l['y'] - bar_cy) < 15 
+                    and not l.get('is_rotated', False)
+                    and l['text'].lower().replace('_', ' ') not in ignore_words
                 ]
                 
-                if possible_labels:
-                    best_label = min(possible_labels, key=lambda l: abs(l['y'] - bar_cy))
-                    label_text = best_label['text']
+                if aligned_labels:
+                    # Sort the fragments left-to-right based on their x position
+                    aligned_labels.sort(key=lambda l: l['x'])
+                    # Join them together with a space
+                    label_text = " ".join([l['text'] for l in aligned_labels])
                 else:
                     label_text = "Unknown Category"
+
+                # possible_labels = [
+                #     l for l in text_labels 
+                #     if l['x'] < x1 and (x1 - l['x']) < max_label_distance and l['text'].lower().replace('_', ' ') not in ignore_words
+                # ]
+                
+                # # possible_labels = [
+                # #     l for l in text_labels 
+                # #     if l['x'] < x1 and (x1 - l['x']) < 150 and l['text'].lower().replace('_', ' ') not in ignore_words
+                # # ]
+                
+                # if possible_labels:
+                #     best_label = min(possible_labels, key=lambda l: abs(l['y'] - bar_cy))
+                #     label_text = best_label['text']
+                # else:
+                #     label_text = "Unknown Category"
                     
                 real_val = (x2 - zero_x_pixel) * units_per_pixel
                 final_data.append((label_text, round(real_val, 2)))
@@ -307,6 +536,10 @@ class GraphExtractor:
 
         return json.dumps({"chart_type": "pie", "title": title, "data": final_slices}, indent=4)
 
+
+
+
+## Fast but inaccurate
 
 # import torch
 # import torch.nn as nn
