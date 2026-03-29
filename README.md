@@ -61,6 +61,16 @@ Audio Output (Text-to-Speech)
 - **Robust Scaling**: Uses multiple reference points to establish axis scale
 - **Spatial Reasoning**: Maps pixel coordinates to data values using detected axis positions
 
+#### Why YOLO + EasyOCR is the Core Strength
+
+This hybrid approach is **fundamentally superior** to end-to-end deep learning models like DePlot or Pix2Struct:
+
+- **Direct Supervision**: YOLO learns exact visual boundaries; EasyOCR focuses purely on text recognition
+- **Interpretability**: Each component's output is inspectable, making debugging and improvement straightforward
+- **Modularity**: Swap YOLO versions, upgrade EasyOCR, or replace axis mapping independently
+- **Robustness**: Specialized training on chart elements beats generalist vision models
+- **Efficiency**: Modular design allows selective GPU/CPU usage for different stages
+
 ### 3. **Question-Answering & Summarization** (Donut Fine-tuning)
 
 **Why Donut?** Donut (Document Understanding Transformer) excels at structured data extraction from visual inputs. Unlike generic VLMs, Donut is fine-tuned specifically for chart reasoning tasks.
@@ -345,24 +355,27 @@ trainer.train()
    Routes to VBAR extraction pipeline
    ```
 
-3. **Stage 2 - Data Extraction**
+3. **Stage 2 - Data Extraction (YOLO + EasyOCR)** ⭐ Core Architecture
    ```
    a) YOLO Detection:
-      - Detects bar segments → [[x1, y1, x2, y2], ...]
-      - Detects axis labels → [[x1, y1, x2, y2], ...]
+      - Detects bar segments, axis labels, legend items
+      - Returns bounding boxes with confidence scores
+      - Models: bar.pt (YOLO11n-seg), dot_line.pt (YOLO11n-seg)
    
    b) EasyOCR Recognition:
-      - Reads bar labels → ["Sales", "Revenue", ...]
-      - Reads axis values → ["0", "10", "20", ...]
+      - Extracts text from detected regions
+      - Reads bar labels, axis values, titles
+      - Optimized for English text
    
    c) Spatial Reasoning:
       - Maps pixel coordinates to data values
-      - Result: {"Sales": 45, "Revenue": 78, ...}
+      - Establishes axis scale from reference points
+      - Result: {"Sales": 45.2, "Revenue": 78.5, ...}
    ```
 
 4. **Stage 3 - Language Generation**
    ```
-   Input: Extracted data
+   Input: Extracted data from YOLO + EasyOCR
    Donut Model (VBAR Expert): 
    → "The chart shows sales performance across four quarters. 
       Q1 had the highest value at 45 units, while Q4 had the 
@@ -426,27 +439,68 @@ print(f"Data: {data['data']}")
 
 ---
 
-## 🌐 Performance & Hardware Requirements
+## 🌐 Performance & Accuracy Metrics
 
-### Inference Time (Per Chart)
+### 📊 YOLO + EasyOCR Accuracy Results
 
-| Component | Latency | Hardware |
+Comprehensive evaluation on FigureQA dataset (799 processed images across 4 chart types):
+
+#### Type 1: Global Chart Text Extraction (Title, Axis Labels)
+
+| Chart Type | Title Accuracy | X-Axis Label | Y-Axis Label |
+|-----------|--------|--------|--------|
+| **Vertical Bar** | 100.00% | 90.91% | 65.00% |
+| **Horizontal Bar** | 100.00% | 91.76% | 86.30% |
+| **Pie** | 77.17% | N/A | N/A |
+| **Dot/Line** | 100.00% | 88.02% | 67.10% |
+
+#### Type 2: Data Category Recognition (Labels on bars, pie slices, data points)
+
+| Chart Type | Recall | Precision | F1 Score |
+|-----------|--------|--------|--------|
+| **Vertical Bar** | 90.05% | 93.53% | **0.9176** |
+| **Horizontal Bar** | 93.58% | 99.64% | **0.9652** ⭐ |
+| **Pie** | 86.84% | 96.47% | **0.9140** |
+| **Dot/Line** | 71.17% | 80.27% | **0.7545** |
+
+#### Type 3: Data Value Accuracy (Numerical extraction from charts)
+
+| Chart Type | 5% Error Threshold | 10% Error Threshold |
+|-----------|--------|--------|
+| **Vertical Bar** | 55.66% recall | 63.43% recall |
+| **Horizontal Bar** | 87.77% recall ⭐ | 88.45% recall ⭐ |
+| **Dot/Line** | 63.48% recall | 66.43% recall |
+| **Pie** | N/A | N/A |
+
+### ⚡ Speed Advantage: YOLO + EasyOCR vs. DePlot
+
+**YOLO + EasyOCR is ~5x faster than DePlot** while maintaining strong accuracy:
+
+- **Modular Pipeline**: Each component optimized independently for speed
+- **Lightweight Models**: YOLO11n-seg vs. heavy end-to-end architectures
+- **Efficient Text Extraction**: EasyOCR for dedicated OCR vs. vision-language models
+- **Direct Mapping**: Pixel-to-data conversion faster than neural regression
+
+### Component Architecture
+
+| Component | Purpose | Technology |
 |-----------|---------|----------|
-| Chart Classification | ~50ms | CPU/GPU |
-| YOLO Detection | ~150-300ms | GPU recommended |
-| EasyOCR Recognition | ~200-400ms | GPU recommended |
-| Donut Inference | ~800-1500ms | GPU recommended |
-| LLM Summarization (Groq) | ~500-2000ms | Cloud (Free tier) |
-| **Total** | **~2-5 seconds** | GPU (8GB+) |
+| **Chart Classification** | Identify chart type | ResNet-18 |
+| **YOLO Detection** | Localize chart elements | YOLO11n-seg (bar.pt, dot_line.pt) |
+| **EasyOCR Recognition** | Extract text from charts | EasyOCR English |
+| **Spatial Mapping** | Convert pixels to data values | Custom coordinate mapping |
+| **Donut QA** (Optional) | Generate natural language explanations | Vision Encoder-Decoder |
+| **LLM Summarization** (Optional) | Conversational summaries | Groq Llama 3 (Cloud) |
 
 ### Hardware Tiers
 
-| Tier | GPU | RAM | Use Case |
+| Tier | GPU | RAM | Typical Use Case |
 |------|-----|-----|----------|
-| **Local (Dev)** | None | 8GB | Single chart at a time |
-| **Local (GPU)** | NVIDIA RTX 3060+ | 16GB | Real-time processing |
+| **Local (CPU)** | None | 4GB | Development, single charts |
+| **Local (GPU)** | NVIDIA RTX 3060+ | 16GB | Real-time applications |
+| **Apple Silicon (M1/M4)** | MPS | 8GB | MacBook deployment |
 | **Cloud (Spaces)** | A40 GPU | 32GB | Production deployment |
-| **Mobile/Browser** | N/A | 4GB | Chrome extension |
+| **Chrome Extension** | N/A | 4GB | Browser-based, lightweight |
 
 ---
 
