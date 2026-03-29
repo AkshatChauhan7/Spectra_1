@@ -103,32 +103,6 @@ Each expert is fine-tuned starting from **STEM Sight Master weights**, ensuring:
 
 ---
 
-## 📊 STEM Sight: Model Training & Dataset Summary
-
-**STEM Sight** uses a **Multi-Expert Vision-Encoder-Decoder (Donut)** architecture to convert complex charts and graphs into accessible summaries.  
-By training specialized **"experts" for different plot types**, the system achieves higher accuracy in **spatial reasoning and data extraction**.
-
-## 📈 Model Performance Summary
-
-All specialized models were trained starting from the **VBAR Master weights** to utilize the **Stability Reset strategy**, ensuring a strong baseline for all chart types.
-
-| Chart Type | Base Dataset | Epochs | Training Loss | Validation Loss | Status |
-|-----------|-------------|--------|---------------------|-----------------------|--------|
-| Vertical Bar (VBAR) | PlotQA / ChartQA | 30 | 0.2105 | 0.1920 | ✅ Master |
-| Line Chart | PlotQA / ChartQA | 30 | 0.2380 | 0.2155 | ✅ Expert |
-| Horizontal Bar (HBAR) | PlotQA | 30 | 0.1874 | 0.1710 | ✅ Expert |
-| Pie Chart | PlotQA | 25 | 0.2241 | 0.2089 | ✅ Expert |
-| Dot/Line Scatter | PlotQA | 25 | 0.2156 | 0.1998 | ✅ Expert |
-
-### Training Dataset Details
-- **Primary Source**: PlotQA (Standardized chart reasoning with clean layouts)
-- **Secondary Source**: ChartQA (Real-world complex styling and annotations)
-- **Samples per Type**: 10,000 curated samples to prevent catastrophic forgetting
-- **Format**: Donut-ready JSONL with image + ground truth pairs
-- **Label Structure**: `<s_chartqa> {chart_analysis_summary} </s_chartqa>`
-
----
-
 ## 🚀 Getting Started
 
 ### Prerequisites
