@@ -13,6 +13,7 @@ from ultralytics import YOLO
 import easyocr
 from huggingface_hub import hf_hub_download
 import warnings
+from transformers import DonutProcessor, VisionEncoderDecoderModel
 
 # Suppress annoying warnings to keep the terminal clean
 warnings.filterwarnings("ignore")
@@ -72,6 +73,25 @@ class GraphExtractor:
 
         # 6. Setup OCR Text Reader
         self.ocr_reader = easyocr.Reader(['en'], gpu=torch.cuda.is_available() or torch.backends.mps.is_available())
+        print("🍩 Loading Line Expert from Hugging Face...")
+        
+        try:
+            # Point to your Hugging Face repo and specify the exact subfolder
+            self.line_processor = DonutProcessor.from_pretrained(
+                self.hf_repo_id, 
+                subfolder="STEM_Sight_Line_Model"
+            )
+            
+            self.line_model = VisionEncoderDecoderModel.from_pretrained(
+                self.hf_repo_id, 
+                subfolder="STEM_Sight_Line_Model"
+            ).to(self.device)
+            
+            self.line_model.eval()
+            
+        except Exception as e:
+            print(f"⚠️ Warning: Could not load Line model from Hugging Face. Error: {e}")
+            self.line_model = None
 
     def _extract_number(self, text_str):
         matches = re.findall(r'-?\d+\.?\d*', text_str.replace(',', ''))
@@ -148,6 +168,8 @@ class GraphExtractor:
             return self._extract_pie_chart(image_path)
         elif chart_type == 'dot_line':
             return self._extract_dot_line_chart(image_path)
+        elif chart_type == 'line':
+            return self._extract_line_chart(image_path)
         else:
             return json.dumps({
                 "chart_type": chart_type, 
@@ -393,7 +415,6 @@ class GraphExtractor:
                 bar_cy = (y1 + y2) / 2
                 if (x2 - x1) < 10 or (y2 - y1) < 5: continue 
 
-
                 # Get ALL labels to the left of the bar that are vertically aligned with it (within 15 pixels)
                 aligned_labels = [
                     l for l in text_labels 
@@ -461,25 +482,54 @@ class GraphExtractor:
                     
                 real_val = (zero_y_pixel - y1) * units_per_pixel
                 final_data.append((label_text, round(real_val, 2)))
-
-        x_axis_label, y_axis_label = None, None
+        
+        title, x_axis_label, y_axis_label = None, None, None
+        
         if text_labels:
             category_texts = [item[0] for item in final_data]
+            
+            # 1. Extract Title (Top-most text, must be higher than the highest bar)
+            top_most = min(text_labels, key=lambda l: l['y'])
+            if top_most['text'] not in category_texts and top_most['y'] < boxes[:, 1].min():
+                title = top_most['text']
+
+            # 2. Extract X-Axis Label (Bottom-most text)
             bottom_most = max(text_labels, key=lambda l: l['y'])
-            if bottom_most['text'] not in category_texts and bottom_most['text'].lower() != 'title':
+            if bottom_most['text'] not in category_texts and bottom_most['text'] != title and bottom_most['text'].lower() != 'title':
                 x_axis_label = bottom_most['text']
                 
+            # 3. Extract Y-Axis Label (Left-most text)
             left_most = min(text_labels, key=lambda l: l['x'])
-            if left_most['text'] not in category_texts and left_most['text'].lower() != 'title':
+            if left_most['text'] not in category_texts and left_most['text'] != title and left_most['text'].lower() != 'title':
                 y_axis_label = left_most['text']
 
         output_dict = {
             "chart_type": chart_type,
+            "title": title,
             "x_axis_label": x_axis_label,
             "y_axis_label": y_axis_label,
             "data": [{"category": label, "value": value} for label, value in final_data]
         }
         return json.dumps(output_dict, indent=4)
+
+        # x_axis_label, y_axis_label = None, None
+        # if text_labels:
+        #     category_texts = [item[0] for item in final_data]
+        #     bottom_most = max(text_labels, key=lambda l: l['y'])
+        #     if bottom_most['text'] not in category_texts and bottom_most['text'].lower() != 'title':
+        #         x_axis_label = bottom_most['text']
+                
+        #     left_most = min(text_labels, key=lambda l: l['x'])
+        #     if left_most['text'] not in category_texts and left_most['text'].lower() != 'title':
+        #         y_axis_label = left_most['text']
+
+        # output_dict = {
+        #     "chart_type": chart_type,
+        #     "x_axis_label": x_axis_label,
+        #     "y_axis_label": y_axis_label,
+        #     "data": [{"category": label, "value": value} for label, value in final_data]
+        # }
+        # return json.dumps(output_dict, indent=4)
 
     def _extract_pie_chart(self, image_path):
         img_pil = Image.open(image_path).convert('RGB')
@@ -535,6 +585,49 @@ class GraphExtractor:
             final_slices[slice_name] = slice_value
 
         return json.dumps({"chart_type": "pie", "title": title, "data": final_slices}, indent=4)
+    
+    def _extract_line_chart(self, image_path):
+        """
+        Extracts data/summary from a line chart using the fine-tuned Donut model.
+        """
+        if self.line_model is None:
+            return json.dumps({
+                "chart_type": "line", 
+                "error": "Line model failed to load. Check model path."
+            })
+
+        # Process Image
+        image = Image.open(image_path).convert("RGB")
+        pixel_values = self.line_processor(image, return_tensors="pt").pixel_values.to(self.device)
+
+        # Generate Summary
+        task_prompt = "<s_chartqa>"
+        decoder_input_ids = self.line_processor.tokenizer(
+            task_prompt, add_special_tokens=False, return_tensors="pt"
+        ).input_ids.to(self.device)
+
+        with torch.no_grad():
+            outputs = self.line_model.generate(
+                pixel_values,
+                decoder_input_ids=decoder_input_ids,
+                max_length=512,
+                num_beams=2,
+                early_stopping=True,
+                pad_token_id=self.line_processor.tokenizer.pad_token_id,
+                eos_token_id=self.line_processor.tokenizer.eos_token_id,
+            )
+
+        # Clean Output
+        sequence = self.line_processor.batch_decode(outputs)[0]
+        clean_output = sequence.replace(task_prompt, "").replace(self.line_processor.tokenizer.eos_token, "").replace(self.line_processor.tokenizer.pad_token, "").strip()
+
+        # Format as JSON to remain consistent with your other extractors
+        output_dict = {
+            "chart_type": "line",
+            "summary": clean_output
+        }
+        
+        return json.dumps(output_dict, indent=4)
 
 
 
