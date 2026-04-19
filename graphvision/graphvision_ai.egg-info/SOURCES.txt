@@ -1,0 +1,10 @@
+LICENSE
+README.md
+pyproject.toml
+graphvision/__init__.py
+graphvision/extractor.py
+graphvision_ai.egg-info/PKG-INFO
+graphvision_ai.egg-info/SOURCES.txt
+graphvision_ai.egg-info/dependency_links.txt
+graphvision_ai.egg-info/requires.txt
+graphvision_ai.egg-info/top_level.txt
