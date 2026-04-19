@@ -1,19 +1,35 @@
 {
+  "name": "Spectra",
+  "version": "1.0",
   "manifest_version": 3,
-  "name": "STEM Sight Reader",
-  "version": "2.0",
-  "description": "Autonomous AI screen reader for visually impaired students.",
   "permissions": [
+    "tts",
     "activeTab",
     "scripting"
   ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
   "action": {
-    "default_title": "Start STEM Sight Reading"
+    "default_title": "Start Spectra"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Start Spectra Analysis"
+    }
   },
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "scripts/domExtractor.js", 
+        "scripts/api.js", 
+        "scripts/mainContent.js"
+      ]
+    }
+  ]
 }
