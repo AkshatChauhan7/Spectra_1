@@ -2,6 +2,11 @@
 
 Spectra is an advanced **accessibility-first** platform designed to assist visually impaired students by converting complex data visualizations into descriptive audio and text summaries. The core engine, **STEM Sight**, utilizes a **multi-layered AI architecture** combining YOLO object detection, optical character recognition, and specialized Donut transformer models for precise chart understanding.
 
+## 🔗 Backend Code
+
+Explore the backend implementation here:  
+👉 [Spectra Backend Repository](https://huggingface.co/spaces/ShadowGard3n/Spectra-Backend/tree/main)
+
 ## 🚀 Getting Started
 
 ### Prerequisites
