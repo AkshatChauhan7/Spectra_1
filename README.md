@@ -2,6 +2,118 @@
 
 Spectra is an advanced **accessibility-first** platform designed to assist visually impaired students by converting complex data visualizations into descriptive audio and text summaries. The core engine, **STEM Sight**, utilizes a **multi-layered AI architecture** combining YOLO object detection, optical character recognition, and specialized Donut transformer models for precise chart understanding.
 
+## 🚀 Getting Started
+
+### Prerequisites
+- Python 3.8+
+- CUDA 11.8+ (for GPU acceleration) OR Apple Silicon (MPS support) OR CPU fallback
+- 8GB+ RAM (16GB+ recommended for full model inference)
+
+### Option 1: Using PyPI Package (Recommended for Integration)
+
+The core vision extraction engine is published on PyPI and can be installed independently:
+
+```bash
+pip install graphvision-ai==0.2.4
+```
+
+**Quick Start with GraphVision:**
+```python
+from graphvision import GraphExtractor
+
+# Initialize the extraction engine
+extractor = GraphExtractor()
+
+# Extract chart data from an image
+result = extractor.extract("path/to/chart.png")
+
+# Result format (JSON):
+# {
+#   "chart_type": "vbar_categorical",
+#   "data": [...],
+#   "x_axis_label": "...",
+#   "y_axis_label": "...",
+#   "title": "..."
+# }
+```
+
+📦 **PyPI Package**: https://pypi.org/project/graphvision-ai/
+
+### Option 2: Running the Backend API Locally
+
+The backend API wraps GraphVision and adds LLM-powered summarization using Groq's Llama 3 model.
+
+#### Installation
+
+```bash
+cd Spectra-Backend
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the FastAPI server
+python main.py
+```
+
+The server will start on `http://127.0.0.1:8000`
+
+#### API Documentation
+
+Once running, visit: **http://127.0.0.1:8000/docs** for interactive Swagger documentation
+
+**Endpoint**: `POST /analyze-graph`, `POST /ask`
+
+```bash
+curl -X POST "http://127.0.0.1:8000/analyze-graph" \
+  -H "Content-Type: application/octet-stream" \
+  -d @chart.png
+```
+
+**Response**: A conversational text summary of the chart (optimized for text-to-speech)
+
+### Option 3: Deployed Backend (Hugging Face Spaces)
+
+A production-ready version is hosted on Hugging Face Spaces:
+
+🔗 **Backend API**: https://shadowgard3n-spectra-backend.hf.space/docs
+
+Use this for integration without setting up locally. The API is identical to the local version.
+
+### Option 4: Chrome Extension (Frontend)
+
+The Chrome extension provides a convenient UI for real-time chart analysis on webpages.
+
+#### Installation
+
+1. Navigate to `chrome://extensions/` in Chrome
+2. Enable **Developer Mode** (top-right toggle)
+3. Click **Load unpacked**
+4. Select the `Spectra-Frontend` folder
+
+#### Usage
+
+1. Click the **STEM Sight icon** in the Chrome toolbar
+2. Navigate to a webpage with charts/graphs
+3. The extension will:
+   - Identify images on the page
+   - Send them to the backend API for analysis
+   - Speak the results aloud using Web Speech API
+4. **Press `Escape`** to stop reading
+
+#### Configuration
+
+Edit `Spectra-Frontend/background.js` to change the backend URL:
+
+```javascript
+// Local backend (default)
+const API_URL = "http://127.0.0.1:8000/";
+
+// Or use the deployed version
+// const API_URL = "https://shadowgard3n-spectra-backend.hf.space/";
+```
+
+---
+
 ## 🎯 Project Vision
 
 Spectra democratizes access to scientific charts and graphs by leveraging cutting-edge AI to:
@@ -99,121 +211,6 @@ Each expert is fine-tuned starting from **STEM Sight Master weights**, ensuring:
    - repetition_penalty=2.5 (Reduce hallucination)
    - no_repeat_ngram_size=3 (Prevent loops)
    - max_length=512 (Capture detailed explanations)
-```
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- Python 3.8+
-- CUDA 11.8+ (for GPU acceleration) OR Apple Silicon (MPS support) OR CPU fallback
-- 8GB+ RAM (16GB+ recommended for full model inference)
-
-### Option 1: Using PyPI Package (Recommended for Integration)
-
-The core vision extraction engine is published on PyPI and can be installed independently:
-
-```bash
-pip install graphvision-ai==0.2.4
-```
-
-**Quick Start with GraphVision:**
-```python
-from graphvision import GraphExtractor
-
-# Initialize the extraction engine
-extractor = GraphExtractor()
-
-# Extract chart data from an image
-result = extractor.extract("path/to/chart.png")
-
-# Result format (JSON):
-# {
-#   "chart_type": "vbar_categorical",
-#   "data": [...],
-#   "x_axis_label": "...",
-#   "y_axis_label": "...",
-#   "title": "..."
-# }
-```
-
-📦 **PyPI Package**: https://pypi.org/project/graphvision-ai/
-
-### Option 2: Running the Backend API Locally
-
-The backend API wraps GraphVision and adds LLM-powered summarization using Groq's Llama 3 model.
-
-#### Installation
-
-```bash
-cd Spectra-Backend
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Set up Groq API Key (get free key from https://console.groq.com)
-export GROQ_API_KEY="your-groq-api-key-here"
-
-# Start the FastAPI server
-python main.py
-```
-
-The server will start on `http://127.0.0.1:8000`
-
-#### API Documentation
-
-Once running, visit: **http://127.0.0.1:8000/docs** for interactive Swagger documentation
-
-**Endpoint**: `POST /analyze-graph`
-
-```bash
-curl -X POST "http://127.0.0.1:8000/analyze-graph" \
-  -H "Content-Type: application/octet-stream" \
-  -d @chart.png
-```
-
-**Response**: A conversational text summary of the chart (optimized for text-to-speech)
-
-### Option 3: Deployed Backend (Hugging Face Spaces)
-
-A production-ready version is hosted on Hugging Face Spaces:
-
-🔗 **Backend API**: https://shadowgard3n-spectra-backend.hf.space/docs
-
-Use this for integration without setting up locally. The API is identical to the local version.
-
-### Option 4: Chrome Extension (Frontend)
-
-The Chrome extension provides a convenient UI for real-time chart analysis on webpages.
-
-#### Installation
-
-1. Navigate to `chrome://extensions/` in Chrome
-2. Enable **Developer Mode** (top-right toggle)
-3. Click **Load unpacked**
-4. Select the `Spectra-Frontend` folder
-
-#### Usage
-
-1. Click the **STEM Sight icon** in the Chrome toolbar
-2. Navigate to a webpage with charts/graphs
-3. The extension will:
-   - Identify images on the page
-   - Send them to the backend API for analysis
-   - Speak the results aloud using Web Speech API
-4. **Press `Escape`** to stop reading
-
-#### Configuration
-
-Edit `Spectra-Frontend/background.js` to change the backend URL:
-
-```javascript
-// Local backend (default)
-const API_URL = "http://127.0.0.1:8000/analyze-graph";
-
-// Or use the deployed version
-// const API_URL = "https://shadowgard3n-spectra-backend.hf.space/analyze-graph";
 ```
 
 ---
