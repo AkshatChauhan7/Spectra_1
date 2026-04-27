@@ -239,7 +239,7 @@ let readingQueue = [];
 let currentIndex = 0;
 let lastAccessedImageIndex = -1;
 let recognition = null;
-let isListeningForQuestion = false; // 🧠 NEW: Gives Spectra short-term memory!
+let isListeningForQuestion = false; 
 
 console.log("🚀 Spectra Content Script Injected and Ready (Mac Optimized + Split Voice Fix)!");
 
@@ -260,7 +260,7 @@ function initVoiceRecognition() {
             
             // ⚡ FAST INTERIM COMMANDS
             if (!event.results[i].isFinal) {
-                if (transcript.includes("pause") || transcript.includes("stop")) {
+                if (transcript.includes("pause") || transcript.includes("stop") || transcript.includes("freeze")) {
                     handleCommand("pause", "voice");
                     recognition.abort(); return; 
                 }
@@ -272,7 +272,7 @@ function initVoiceRecognition() {
                     handleCommand("previous", "voice");
                     recognition.abort(); return; 
                 }
-                if (transcript.includes("resume") || transcript.includes("play")) {
+                if (transcript.includes("resume") || transcript.includes("play") || transcript.includes("continue")) {
                     handleCommand("resume", "voice");
                     recognition.abort(); return; 
                 }
@@ -324,11 +324,11 @@ function handleCommand(cmd, source = "keyboard") {
     if (cmd.includes("stop") || (cmd === "end")) {
         stopSpectra();
     } 
-    else if (cmd.includes("pause")) {
+    else if (cmd.includes("pause") || cmd.includes("freeze")) {
         spectraState = "PAUSED";
         chrome.runtime.sendMessage({ action: "stop" }); 
     } 
-    else if (cmd.includes("resume") || cmd.includes("play")) {
+    else if (cmd.includes("resume") || cmd.includes("play") || cmd.includes("continue")) {
         if (spectraState === "PAUSED") {
             spectraState = "READING";
             processCurrentItem(); 

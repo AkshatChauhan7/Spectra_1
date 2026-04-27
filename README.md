@@ -138,7 +138,7 @@ Stage 1: Chart Classification (ResNet-18)
     ↓
 Stage 2: Data Extraction (YOLO + EasyOCR)
     ↓
-Stage 3: Natural Language Generation (Donut Fine-tuned Models)
+Stage 3: Natural Language Generation (Rule-Based)
     ↓
 Audio Output (Text-to-Speech)
 ```
@@ -187,36 +187,6 @@ This hybrid approach is **fundamentally superior** to end-to-end deep learning m
 - **Modularity**: Swap YOLO versions, upgrade EasyOCR, or replace axis mapping independently
 - **Robustness**: Specialized training on chart elements beats generalist vision models
 - **Efficiency**: Modular design allows selective GPU/CPU usage for different stages
-
-### 3. **Question-Answering & Summarization** (Donut Fine-tuning)
-
-**Why Donut?** Donut (Document Understanding Transformer) excels at structured data extraction from visual inputs. Unlike generic VLMs, Donut is fine-tuned specifically for chart reasoning tasks.
-
-#### Training Strategy: Multi-Expert Architecture
-Rather than a single generalist model, we train **specialized experts** for different chart types:
-
-- **VBAR Expert** - Vertical Bar Chart Specialist
-- **HBAR Expert** - Horizontal Bar Chart Specialist  
-- **Line Expert** - Trend/Line Chart Specialist
-- **Pie Expert** - Pie Chart Specialist
-- **Dot/Line Expert** - Scatter Plot Specialist
-
-Each expert is fine-tuned starting from **STEM Sight Master weights**, ensuring:
-- Knowledge transfer across chart types
-- Stability through transfer learning
-- Reduced hallucination through specialized training
-
-#### Fine-Tuning Approach
-```python
-1. Start from: Naver Donut Base (Vision Encoder-Decoder)
-2. Task Format: <s_chartqa> {ground_truth_summary} </s_chartqa>
-3. Loss Function: Cross-entropy with beam search inference
-4. Inference Parameters:
-   - num_beams=4 (Better quality)
-   - repetition_penalty=2.5 (Reduce hallucination)
-   - no_repeat_ngram_size=3 (Prevent loops)
-   - max_length=512 (Capture detailed explanations)
-```
 
 ---
 
@@ -274,46 +244,6 @@ Each dataset should have:
 {"file_name": "chart_001.png", "ground_truth": "{\"gt_parse\": \"Chart shows an increase from 10 to 50...\"}"}
 ```
 
-### Training Script
-
-See `notebooks/STEM_Sight_Horizontal.ipynb` for a complete example:
-
-```python
-from transformers import DonutProcessor, VisionEncoderDecoderModel, TrainingArguments, Trainer
-from datasets import load_dataset
-
-# Load base model
-processor = DonutProcessor.from_pretrained("naver-clova-ix/donut-base")
-model = VisionEncoderDecoderModel.from_pretrained("naver-clova-ix/donut-base")
-
-# Configure model
-model.config.pad_token_id = processor.tokenizer.pad_token_id
-model.config.decoder_start_token_id = processor.tokenizer.convert_tokens_to_ids(['<s_chartqa>'])[0]
-
-# Load your data
-dataset = load_dataset("imagefolder", data_dir="/path/to/dataset")
-
-# Train
-training_args = TrainingArguments(
-    output_dir="./my_expert_model",
-    per_device_train_batch_size=2,
-    gradient_accumulation_steps=4,
-    num_train_epochs=3,
-    learning_rate=5e-6,
-    eval_strategy="steps",
-    eval_steps=100,
-)
-
-trainer = Trainer(
-    model=model,
-    args=training_args,
-    train_dataset=dataset["train"],
-    eval_dataset=dataset["validation"],
-)
-
-trainer.train()
-```
-
 ---
 
 ## 💡 How It Works: End-to-End
@@ -352,7 +282,7 @@ trainer.train()
 4. **Stage 3 - Language Generation**
    ```
    Input: Extracted data from YOLO + EasyOCR
-   Donut Model (VBAR Expert): 
+   Rule Based NLP: 
    → "The chart shows sales performance across four quarters. 
       Q1 had the highest value at 45 units, while Q4 had the 
       lowest at 12 units."
@@ -466,7 +396,6 @@ Comprehensive evaluation on FigureQA dataset (799 processed images across 4 char
 | **EasyOCR Recognition** | Extract text from charts | EasyOCR English |
 | **Spatial Mapping** | Convert pixels to data values | Custom coordinate mapping |
 | **Donut QA** (Optional) | Generate natural language explanations | Vision Encoder-Decoder |
-| **LLM Summarization** (Optional) | Conversational summaries | Groq Llama 3 (Cloud) |
 
 ### Hardware Tiers
 

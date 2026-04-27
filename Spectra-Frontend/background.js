@@ -24,6 +24,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         console.log(`🗣️ Speaking: "${request.text.substring(0, 50)}..."`);
         
         chrome.tts.speak(request.text, {
+            voiceName: "Google UK English Female",
             rate: 1.0,
             onEvent: function(event) {
                 if (event.type === 'error') {
